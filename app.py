@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from premium_engine import validate_customer_file, calculate_premium_row
+from premium_Calculation import validate_customer_file, calculate_premium_row
 
 st.set_page_config(page_title="GCL Premium Calculator", layout="wide")
 
