@@ -26,21 +26,58 @@ def validate_customer_file(df):
 
     return True
 
-def find_rate(rates_df, product, cover_type, age, tenure):
-    matched = rates_df[
+def find_rate(rates_df, product, cover_type, age, tenure, age_rule="next_higher"):
+    filtered = rates_df[
         (rates_df["product"].astype(str).str.strip().str.lower() == clean_string(product)) &
         (rates_df["cover_type"].astype(str).str.strip().str.lower() == clean_string(cover_type)) &
-        (rates_df["age_min"] <= age) &
-        (rates_df["age_max"] >= age) &
         (rates_df["tenure_months"] == tenure)
+    ].copy()
+
+    if filtered.empty:
+        return None
+
+    exact_band_match = filtered[
+        (filtered["age_min"] <= age) & (filtered["age_max"] >= age)
     ]
+
+    if not exact_band_match.empty:
+        return exact_band_match.iloc[0]["rate_per_lakh"]
+
+    single_age_rows = filtered[filtered["age_min"] == filtered["age_max"]].copy()
+
+    if single_age_rows.empty:
+        return None
+
+    available_ages = sorted(single_age_rows["age_min"].unique().tolist())
+
+    if age_rule == "next_higher":
+        valid_ages = [a for a in available_ages if a >= age]
+        if valid_ages:
+            selected_age = min(valid_ages)
+        else:
+            return None
+
+    elif age_rule == "previous_lower":
+        valid_ages = [a for a in available_ages if a <= age]
+        if valid_ages:
+            selected_age = max(valid_ages)
+        else:
+            return None
+
+    elif age_rule == "nearest":
+        selected_age = min(available_ages, key=lambda x: abs(x - age))
+
+    else:
+        return None
+
+    matched = single_age_rows[single_age_rows["age_min"] == selected_age]
 
     if matched.empty:
         return None
 
     return matched.iloc[0]["rate_per_lakh"]
 
-def calculate_premium_row(row, rates_df, selected_product, selected_cover):
+def calculate_premium_row(row, rates_df, selected_product, selected_cover, age_rule="next_higher"):
     try:
         age = int(row["Age"])
         tenure = int(row["Tenure_Months"])
@@ -55,7 +92,14 @@ def calculate_premium_row(row, rates_df, selected_product, selected_cover):
                 "Status": "Invalid Loan Amount"
             })
 
-        rate = find_rate(rates_df, selected_product, selected_cover, age, tenure)
+        rate = find_rate(
+            rates_df=rates_df,
+            product=selected_product,
+            cover_type=selected_cover,
+            age=age,
+            tenure=tenure,
+            age_rule=age_rule
+        )
 
         if rate is None:
             return pd.Series({
@@ -94,6 +138,12 @@ st.sidebar.header("Calculation Settings")
 selected_product = st.sidebar.selectbox("Select Product", products)
 selected_cover = st.sidebar.selectbox("Select Cover Type", covers)
 
+age_rule = st.sidebar.selectbox(
+    "Age Mapping Rule",
+    ["next_higher", "previous_lower", "nearest"],
+    index=0
+)
+
 uploaded_file = st.file_uploader("Upload customer Excel file", type=["xlsx"])
 
 st.markdown("### Required columns in upload file")
@@ -116,7 +166,8 @@ if uploaded_file is not None:
                     row=row,
                     rates_df=rates_df,
                     selected_product=selected_product,
-                    selected_cover=selected_cover
+                    selected_cover=selected_cover,
+                    age_rule=age_rule
                 ),
                 axis=1
             )
